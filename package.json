@@ -1,0 +1,21 @@
+{
+  "name": "react-node-auth-app",
+  "version": "1.0.0",
+  "description": "This is a full-stack authentication app built with:",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zukenlove/react-node-auth-app.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/zukenlove/react-node-auth-app/issues"
+  },
+  "homepage": "https://github.com/zukenlove/react-node-auth-app#readme"
+}

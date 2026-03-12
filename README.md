@@ -18,4 +18,4 @@ This is a full-stack authentication app built with:
 3. Run `npm start` to start the app
 
 ## Author
-Your Name
+Your Frantz

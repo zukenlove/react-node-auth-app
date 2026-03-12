@@ -1,4 +1,10 @@
 import {v4 as uuidv4} from 'uuid'
+
+
+export interface Updated {
+  date: Date;
+}
+
 class User {
   private id: string;
   private username: string;
@@ -39,7 +45,7 @@ class User {
     const {username, email, role, password}= params
     const now = new Date()
     const id = uuidv4()
-    
+
     return new User(id, username, email, role, password, now, now, null)
   }
   // Example getter methods

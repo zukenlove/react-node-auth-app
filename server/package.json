@@ -22,7 +22,9 @@
   "devDependencies": {
     "@types/node": "^25.4.0",
     "@types/pg": "^8.18.0",
+    "bcrypt": "^6.0.0",
     "prisma": "^7.5.0",
-    "ts-node": "^10.9.2"
+    "ts-node": "^10.9.2",
+    "uuid": "^13.0.0"
   }
 }

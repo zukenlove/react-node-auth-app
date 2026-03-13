@@ -1,5 +1,7 @@
 {
   // Visit https://aka.ms/tsconfig to read more about this file
+
+  
   "compilerOptions": {
     // File Layout
     "rootDir": "./src",
@@ -7,15 +9,20 @@
 
     // Environment Settings
     // See also https://aka.ms/tsconfig/module
-    "module": "nodenext",
-    "target": "esnext",
+
     // For nodejs:
     "lib": ["esnext"],
     "types": ["node"],
     // and npm install -D @types/node
 
-    // Other Outputs
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "target": "ES2023",
+    "strict": true,
     "esModuleInterop": true,
+    // "ignoreDeprecations": "6.0",
+
+    // Other Outputs
     "sourceMap": true,
     "declaration": true,
     "declarationMap": true,
@@ -33,7 +40,6 @@
     // "noPropertyAccessFromIndexSignature": true,
 
     // Recommended Options
-    "strict": true,
     "jsx": "react-jsx",
     "verbatimModuleSyntax": true,
     "isolatedModules": true,

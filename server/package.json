@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "npx tsc --watch",
+    "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js"
   },
@@ -16,15 +16,21 @@
     "@prisma/adapter-pg": "^7.5.0",
     "@prisma/client": "^7.5.0",
     "dotenv": "^17.3.1",
-    "pg": "^8.20.0",
-    "typescript": "^5.9.3"
+    "express": "^5.2.1",
+    "pg": "^8.20.0"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "@types/node": "^25.4.0",
     "@types/pg": "^8.18.0",
     "bcrypt": "^6.0.0",
-    "prisma": "^7.5.0",
+    "nodemon": "^3.1.14",
+    "prisma": "^6.19.2",
     "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
+    "tsconfig-paths": "^4.2.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
     "uuid": "^13.0.0"
   }
 }

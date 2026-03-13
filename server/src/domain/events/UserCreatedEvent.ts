@@ -1,10 +1,15 @@
-import type { DomainEvent } from "./DomainEvent.js";
+import { BaseDomainEvent } from "./BasedomainEvent";
 
-export class UserCreatedEvent implements DomainEvent {
-  eventName = "user.created";
-  occurredAt: Date;
+export interface UserCreatedPayload {
+  userId: string;
+  email: string;
+  username: string;
+  createdAt: Date;
+  createdBy?: string;
+}
 
-  constructor(public aggregateId: string) {
-    this.occurredAt = new Date();
+export class UserCreatedEvent extends BaseDomainEvent<UserCreatedPayload> {
+  constructor(aggregateId: string, payload: UserCreatedPayload) {
+    super("user.created", aggregateId, payload);
   }
 }

@@ -1,13 +1,11 @@
-import type { DomainEvent } from "./DomainEvent.js";
+import { BaseDomainEvent } from "./BasedomainEvent";
 
-export class UserPasswordChangedEvent implements DomainEvent {
-    readonly eventName: string;
-    readonly aggregateId: string;
-    readonly occurredAt: Date;
+export interface UserPasswordChangedPayload {
+  changedAt: Date;
+}
 
-    constructor(aggregateId: string) {
-        this.aggregateId = aggregateId;
-        this.eventName = "UserPasswordChanged";
-        this.occurredAt = new Date();
-    }
+export class UserPasswordChangedEvent extends BaseDomainEvent<UserPasswordChangedPayload> {
+  constructor(aggregateId: string, payload: UserPasswordChangedPayload) {
+    super("user.password.changed", aggregateId, payload);
+  }
 }

@@ -1,139 +1,169 @@
-import { v4 as uuidv4 } from "uuid";
 import { Password } from "../value-objects/Password.js";
+import { Email } from "../value-objects/Email.js";
+import { Username } from "../value-objects/Username.js";
+import { UserId } from "../value-objects/UserId.js";
+import { Role } from "../entities/Role.js";
 import type { DomainEvent } from "../events/DomainEvent.js";
-import { UserPasswordChangedEvent } from "../events/UserPasswordChangedEvent.js";
 import { UserCreatedEvent } from "../events/UserCreatedEvent.js";
+import { UserDeletedEvent } from "../events/UserDeletedEvent.js";
+import { UserRestoredEvent } from "../events/UserRestoredEvent.js";
+import { UserEmailChangedEvent } from "../events/UserEmailChangedEvent.js";
+import { UserPasswordChangedEvent } from "../events/UserPasswordChangedEvent.js";
+import { UserRoleAssignedEvent } from "../events/UserRoleAssignedEvent.js";
+import { UserRoleRevokedEvent } from "../events/UserRoleRevokedEvent.js";
 
-/* ----------------------------- ROLES ----------------------------- */
-export enum RoleIds {
-  ADMIN = "admin",
-  USER = "user",
-  MODERATOR = "moderator",
+/* ----------------------------- DATE PROVIDER ----------------------------- */
+export interface DateProvider {
+  now(): Date;
 }
 
-/* ----------------------------- PRISMA INTERFACE ----------------------------- */
-export interface PrismaUser {
-  id: string;
-  username: string;
-  email: string;
-  password: string;
-  roles: string[];
-  createdAt: Date;
-  updatedAt: Date;
-  deletedAt: Date | null;
-}
-
-/* ----------------------------- USER ENTITY ----------------------------- */
-export class User {
-  private id: string;
-  private username: string;
-  private email: string;
-  private roles: RoleIds[];
-  private password: Password;
-  private createdAt: Date;
-  private updatedAt: Date;
-  private deletedAt: Date | null;
-
-  private domainEvents: DomainEvent[] = [];
-
-  /* ----------------------------- CONSTRUCTOR ----------------------------- */
-  private constructor(
-    id: string,
-    username: string,
-    email: string,
-    roles: RoleIds[],
-    password: Password,
-    createdAt: Date,
-    updatedAt: Date,
-    deletedAt: Date | null
-  ) {
-    this.id = id;
-    this.username = username;
-    this.email = email;
-    this.roles = roles;
-    this.password = password;
-    this.createdAt = createdAt;
-    this.updatedAt = updatedAt;
-    this.deletedAt = deletedAt;
+class SystemDateProvider implements DateProvider {
+  now(): Date {
+    return new Date();
   }
+}
 
-  /* ----------------------------- FACTORY ----------------------------- */
-  public static async create(params: {
+/* ----------------------------- USER AGGREGATE ----------------------------- */
+export class User {
+  private domainEvents: DomainEvent[] = [];
+  private version = 0;
+
+  private constructor(
+    private readonly id: UserId,
+    private username: Username,
+    private email: Email,
+    private roles: Set<Role>,
+    private password: Password,
+    private createdAt: Date,
+    private updatedAt: Date,
+    private deletedAt: Date | null,
+    private readonly dateProvider: DateProvider
+  ) {}
+
+  /* ----------------------------- FACTORIES ----------------------------- */
+  public static async register(params: {
     username: string;
     email: string;
-    roles?: RoleIds[];
     password: string;
+    dateProvider?: DateProvider;
   }): Promise<User> {
-    const { username, email, roles = [RoleIds.USER], password } = params;
+    const dp = params.dateProvider ?? new SystemDateProvider();
+    const now = dp.now();
 
-    const now = new Date();
-    const id = uuidv4();
-    const passwordVO = await Password.create(password);
+    const user = new User(
+      UserId.create(),
+      Username.create(params.username),
+      Email.create(params.email),
+      new Set([Role.USER]),
+      await Password.create(params.password),
+      now,
+      now,
+      null,
+      dp
+    );
 
-    const user = new User(id, username, email, roles, passwordVO, now, now, null);
-
-    user.addDomainEvent(new UserCreatedEvent(user.id));
+    user.record(
+      new UserCreatedEvent(user.getId(), {
+        userId: user.getId(),
+        username: user.getUsername(),
+        email: user.getEmail(),
+        createdAt: now
+      })
+    );
 
     return user;
   }
 
-  /* ----------------------------- PRISMA MAPPER ----------------------------- */
-  public static fromPrisma(prismaUser: PrismaUser): User {
-    const passwordVO = Password.fromHash(prismaUser.password);
+  public static async createByAdmin(params: {
+    username: string;
+    email: string;
+    password: string;
+    roles: Role[];
+    actorId: string;
+    actorRoles: Role[];
+    dateProvider?: DateProvider;
+  }): Promise<User> {
+    const dp = params.dateProvider ?? new SystemDateProvider();
+    const now = dp.now();
 
-    const roles: RoleIds[] = prismaUser.roles.map((r) => {
-      if (!Object.values(RoleIds).includes(r as RoleIds)) {
-        throw new Error(`Invalid role in DB: ${r}`);
-      }
-      return r as RoleIds;
-    });
-
-    return new User(
-      prismaUser.id,
-      prismaUser.username,
-      prismaUser.email,
-      roles,
-      passwordVO,
-      prismaUser.createdAt,
-      prismaUser.updatedAt,
-      prismaUser.deletedAt ?? null
+    const user = new User(
+      UserId.create(),
+      Username.create(params.username),
+      Email.create(params.email),
+      new Set(params.roles),
+      await Password.create(params.password),
+      now,
+      now,
+      null,
+      dp
     );
+
+    user.assertAdmin(params.actorRoles);
+    user.assertHasAtLeastOneRole();
+
+    user.record(
+      new UserCreatedEvent(user.getId(), {
+        userId: user.getId(),
+        username: user.getUsername(),
+        email: user.getEmail(),
+        createdAt: now,
+        createdBy: params.actorId
+      })
+    );
+
+    return user;
   }
 
-  /* ----------------------------- DOMAIN EVENTS ----------------------------- */
-  private addDomainEvent(event: DomainEvent) {
-    this.domainEvents.push(event);
-  }
+  /* ----------------------------- REHYDRATION ----------------------------- */
+  public static rehydrate(props: {
+    id: string;
+    username: string;
+    email: string;
+    passwordHash: string;
+    roles: Role[];
+    createdAt: Date;
+    updatedAt: Date;
+    deletedAt: Date | null;
+    version?: number;
+    dateProvider?: DateProvider;
+  }): User {
+    const dp = props.dateProvider ?? new SystemDateProvider();
 
-  public pullDomainEvents(): DomainEvent[] {
-    const events = [...this.domainEvents];
-    this.domainEvents = [];
-    return events;
-  }
+    const user = new User(
+      UserId.fromString(props.id),
+      Username.create(props.username),
+      Email.create(props.email),
+      new Set(props.roles),
+      Password.fromHash(props.passwordHash),
+      props.createdAt,
+      props.updatedAt,
+      props.deletedAt,
+      dp
+    );
 
-  public getDomainEvents(): readonly DomainEvent[] {
-    return this.domainEvents;
+    user.version = props.version ?? 0;
+    return user;
   }
 
   /* ----------------------------- GETTERS ----------------------------- */
   getId(): string {
-    return this.id;
+    return this.id.toString();
   }
 
   getUsername(): string {
-    return this.username;
+    return this.username.toString();
   }
 
   getEmail(): string {
-    return this.email;
+    return this.email.toString();
   }
 
-  getRoles(): readonly RoleIds[] {
-    return this.roles;
+  getRoles(): readonly Role[] {
+    return Object.freeze([...this.roles]);
   }
 
   getPasswordHash(): string {
-    return this.password.toString();
+    return this.password.getHash();
   }
 
   getCreatedAt(): Date {
@@ -148,58 +178,161 @@ export class User {
     return this.deletedAt;
   }
 
-  public hasRole(role: RoleIds): boolean {
-    return this.roles.includes(role);
+  getVersion(): number {
+    return this.version;
   }
 
-  /* ----------------------------- DOMAIN METHODS ----------------------------- */
-  public addRole(role: RoleIds) {
-    if (!this.roles.includes(role)) {
-      this.roles.push(role);
-      this.updatedAt = new Date();
-    }
+  hasRole(role: Role): boolean {
+    return this.roles.has(role);
   }
 
-  public removeRole(role: RoleIds) {
-    this.roles = this.roles.filter((r) => r !== role);
-    this.updatedAt = new Date();
+  /* ----------------------------- ROLE MANAGEMENT ----------------------------- */
+  public assignRole(role: Role, actorId: string, actorRoles: Role[]): void {
+    this.assertActive();
+    this.assertAdmin(actorRoles);
+
+    if (this.hasRole(role)) return;
+
+    this.roles.add(role);
+
+    this.record(
+      new UserRoleAssignedEvent(this.getId(), {
+        roleId: role.getId(),
+        assignedBy: actorId
+      })
+    );
   }
 
-  public async changePassword(newPassword: string) {
+  public revokeRole(role: Role, actorId: string, actorRoles: Role[]): void {
+    this.assertActive();
+    this.assertAdmin(actorRoles);
+
+    if (!this.hasRole(role)) return;
+    if (this.roles.size === 1) throw new Error("User must have at least one role.");
+
+    this.roles.delete(role);
+
+    this.record(
+      new UserRoleRevokedEvent(this.getId(), {
+        roleId: role.getId(),
+        revokedBy: actorId
+      })
+    );
+  }
+
+  /* ----------------------------- PASSWORD ----------------------------- */
+  public async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    this.assertActive();
+
+    const valid = await this.password.compare(currentPassword);
+    if (!valid) throw new Error("Invalid current password.");
+
     this.password = await Password.create(newPassword);
-    this.updatedAt = new Date();
 
-    this.addDomainEvent(new UserPasswordChangedEvent(this.id));
+    const now = this.dateProvider.now();
+    this.record(
+      new UserPasswordChangedEvent(this.getId(), {
+        changedAt: now
+      }),
+      now
+    );
   }
 
-  public async comparePassword(raw: string): Promise<boolean> {
-    return this.password.compare(raw);
+  /* ----------------------------- EMAIL ----------------------------- */
+  public changeEmail(newEmail: string): void {
+    this.assertActive();
+
+    const email = Email.create(newEmail);
+    if (email.equals(this.email)) return;
+
+    this.email = email;
+
+    const now = this.dateProvider.now();
+    this.record(
+      new UserEmailChangedEvent(this.getId(), {
+        newEmail: email.toString(),
+        changedAt: now
+      }),
+      now
+    );
   }
 
-  public softDelete() {
-    this.deletedAt = new Date();
-    this.updatedAt = new Date();
+  /* ----------------------------- SOFT DELETE / RESTORE ----------------------------- */
+  public softDelete(actorId: string): void {
+    if (this.deletedAt) return;
+
+    const now = this.dateProvider.now();
+    this.deletedAt = now;
+
+    this.record(
+      new UserDeletedEvent(this.getId(), {
+        deletedAt: now,
+        deletedBy: actorId
+      }),
+      now
+    );
   }
 
-  public restore() {
+  /* ----------------------------- SOFT DELETE / RESTORE ----------------------------- */
+
+  public restore(actorId: string): void {
+    if (!this.deletedAt) return;
+
     this.deletedAt = null;
-    this.updatedAt = new Date();
+
+    const now = this.dateProvider.now();
+    this.record(
+      new UserRestoredEvent(this.getId(), {
+        restoredAt: now,
+        restoredBy: actorId
+      }),
+      now
+    );
+  }
+/* ----------------------------- INTERNAL ----------------------------- */
+  private record(event: DomainEvent, eventTime?: Date): void {
+    // Use a precise timestamp for this operation
+    const now = eventTime ?? this.dateProvider.now();
+
+    // Update the updatedAt timestamp and version
+    this.updatedAt = now;
+    this.version += 1;
+
+    // Push the event to the domainEvents queue
+    this.domainEvents.push(event);
   }
 
-  /* ----------------------------- UTILS ----------------------------- */
+  public pullDomainEvents(): DomainEvent[] {
+    const events = [...this.domainEvents];
+    this.domainEvents = [];
+    return events;
+  }
+
+  public getDomainEvents(): readonly DomainEvent[] {
+    return Object.freeze([...this.domainEvents]);
+  }
+
+  /* ----------------------------- INVARIANTS ----------------------------- */
+  private assertActive(): void {
+    if (this.deletedAt) throw new Error("User is deleted.");
+  }
+
+  private assertAdmin(actorRoles: readonly Role[]): void {
+    const isAdmin = actorRoles.some((r) => r.equals(Role.ADMIN));
+    if (!isAdmin) throw new Error("Admin privileges required.");
+  }
+
+  private assertHasAtLeastOneRole(): void {
+    if (this.roles.size === 0) throw new Error("User must have at least one role.");
+  }
+
+  /* ----------------------------- INTERNAL ----------------------------- */
+  private touch(): void {
+    this.updatedAt = this.dateProvider.now();
+    this.version += 1;
+  }
+
   public equals(other: User): boolean {
-    return this.id === other.id;
-  }
-
-  public toJSON() {
-    return {
-      id: this.id,
-      username: this.username,
-      email: this.email,
-      roles: this.roles,
-      createdAt: this.createdAt,
-      updatedAt: this.updatedAt,
-      deletedAt: this.deletedAt,
-    };
+    return this.id.equals(other.id);
   }
 }

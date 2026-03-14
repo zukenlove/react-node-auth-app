@@ -1,19 +1,15 @@
-import type { RoleId } from "../../domain/entities/Role.js";
-
 export interface PrismaUser {
   id: string;
   username: string;
   email: string;
-  password: string;
-
-  roles: {
-    role: {
-      id: RoleId;
-      title: string;
-    };
-  }[];
+  passwordHash: string;
+  role: string;  
 
   createdAt: Date;
   updatedAt: Date;
-  deletedAt: Date | null;
+  deletedAt: Date | null, 
+
+  emailVerified: boolean;
+  emailVerificationCode: string | null;
+  emailVerificationExpiresAt: Date | null;
 }

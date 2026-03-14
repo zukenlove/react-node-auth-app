@@ -4,7 +4,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -12,10 +11,16 @@ model User {
   username  String   @unique
   email     String   @unique
   password  String
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   deletedAt DateTime?
-  roles     UserRole[]
+
+  emailVerified              Boolean
+  emailVerificationCode      String?
+  emailVerificationExpiresAt DateTime?
+
+  roles UserRole[]
 }
 
 model Role {

@@ -1,58 +1,85 @@
-import type { PrismaUser } from "./PrismaUser";
 import { User } from "../../domain/entities/User";
 import { prisma } from "./lib/prisma";
+import type { PrismaUserWithRoles } from "./PrismaUser";
 
 export class PrismaUserWrapper {
-  constructor(private record: PrismaUser) {}
+  constructor(private record: PrismaUserWithRoles) {}
 
-  static fromDomain(user: User): PrismaUserWrapper {
-    const record: PrismaUser = {
+  // Accept a domain User, which has getPasswordHash()
+  public static fromDomain(user: User) {
+    const record: PrismaUserWithRoles = {
       id: user.getId(),
-      username: user.getUsername(),
       email: user.getEmail(),
-      passwordHash: user.getPasswordHash(),
-      role: [...user.getRoles()][0]?.toString() ?? "",
+      password: user.getPasswordHash(), // hashed in domain
+      username: user.getUsername(),
       createdAt: user.getCreatedAt(),
       updatedAt: user.getUpdatedAt(),
       deletedAt: user.getDeletedAt(),
-      emailVerified: user.isEmailVerified(),
-      emailVerificationCode: user.getEmailVerificationCode() ?? null,
+      emailVerificationCode: user.getEmailVerificationCode(),
       emailVerificationExpiresAt: user.getEmailVerificationExpiresAt(),
+      emailVerified: user.isEmailVerified(),
+      roles: Array.from(user.getRoles()).map(role => ({ 
+        roleId: role.getId(), 
+        userId: user.getId(), 
+        id: 0, 
+        createdAt: new Date(), 
+        role: { 
+          id: role.getId(), 
+          title: role.getTitle(), 
+          createdAt: new Date() } }))
     };
-
     return new PrismaUserWrapper(record);
   }
 
-  /** Create a new record in the DB */
-  async create(): Promise<PrismaUser> {
-    const { passwordHash,role, ...rest } = this.record;
+  // Save user in the database
+  async create() {
+    const { roles, password, ...rest } = this.record;
 
-    const saved = await prisma.user.create({
-      data: { ...rest, password: passwordHash }
+    const createdUser = await prisma.user.create({
+      data: {
+        ...rest,
+        password, // already hashed
+        roles: {
+          create: Array.from(this.record.roles).map(role => ({
+              role: {
+                connectOrCreate: {
+                  where: { id: role.roleId },
+                  create: { id: role.roleId, title: role.role.title }
+                }
+              }
+            }))
+        }
+      },
+      include: { roles: { include: { role: true } } }
     });
 
-    return {
-      ...saved,
-      passwordHash: saved.password,
-    };
+    return createdUser;
   }
 
-  /** Update an existing record in the DB */
-  async update(): Promise<PrismaUser> {
-    return prisma.user.update({
+  
+  async update() {
+    const { roles, password, ...rest } = this.record;
+
+    const updatedUser = await prisma.user.update({
       where: { id: this.record.id },
-      data: this.record,
+      data: {
+        ...rest,
+        password, // already hashed
+        roles: {
+          deleteMany: {}, // Clear existing roles
+          create: Array.from(this.record.roles).map(role => ({
+              role: {
+                connectOrCreate: {
+                  where: { id: role.roleId },
+                  create: { id: role.roleId, title: role.role.title }
+                }
+              }
+            }))
+        }
+      },
+      include: { roles: { include: { role: true } } }
     });
-  }
 
-  /** Save: create if not exists, otherwise update */
-  async save(): Promise<PrismaUser> {
-    const exists = await prisma.user.findUnique({ where: { id: this.record.id } });
-    return exists ? this.update() : this.create();
-  }
-
-  /** Access the raw Prisma record if needed */
-  getRecord(): PrismaUser {
-    return this.record;
-  }
+    return updatedUser;     
+}
 }

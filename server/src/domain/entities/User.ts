@@ -43,7 +43,8 @@ export class User {
     private username: Username,
     private email: Email,
     private roles: Set<Role>,
-    private readonly password: Password,
+    private password: Password,
+    //private isActive: boolean = false,
     private createdAt: Date,
     private updatedAt: Date,
     private deletedAt: Date | null,
@@ -84,7 +85,6 @@ export class User {
       }),
       now
     );
-    console.log(user);
     return user;
   }
 
@@ -154,8 +154,7 @@ export class User {
 
     const previousState = this.emailVerification.isVerified();
 
-    this.emailVerification =
-      this.emailVerification.verify(code, now);
+    this.emailVerification = this.emailVerification.verify(code, now);
 
     if (!previousState && this.emailVerification.isVerified()) {
       this.record(
@@ -166,6 +165,27 @@ export class User {
       );
     }
   }
+  /*-------------------------------------------------------------------*/
+  // public static async verifyEmailByCode(code: string, userRepository: IUserRepository): Promise<User> {
+  //   const user = await userRepository.findByEmailVerificationCode(code);
+  //   if (!user) {
+  //     throw new Error("Invalid verification code.");
+  //   }
+
+  //   user.verifyEmail(code);
+  //   await userRepository.update(user);
+
+  //   return user;
+  // }
+
+  public sendEmailVerificationCode(): void {
+    this.assertActive();
+
+    if (this.emailVerification.isVerified()) {
+      throw new Error("Email is already verified.");
+    }
+
+  } 
 
   /* ----------------------------- EMAIL ----------------------------- */
   changeEmail(newEmail: string): void {
@@ -391,7 +411,7 @@ export class User {
   getVersion(): number {
     return this.version;
   }
-    getEmailVerificationCode(): string | null {
+  getEmailVerificationCode(): string | null {
       return this.emailVerification.getCode(); // read-only
     }
 
@@ -419,3 +439,14 @@ export class User {
   }
   
 }
+
+export interface RegisterUserDTO {
+  email: string;
+  password: string;
+  username: string;
+  roles?: string[]; 
+}
+
+// For repository layer operations where roles and timestamps may come from the DB,
+// you can define additional DTOs as needed.
+export type userDTO = RegisterUserDTO;

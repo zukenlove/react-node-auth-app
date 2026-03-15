@@ -1,15 +1,10 @@
-export interface PrismaUser {
-  id: string;
-  username: string;
-  email: string;
-  passwordHash: string;
-  role: string;  
+import type{ User as PrismaUser, UserRole as PrismaUserRole, Role as PrismaRole } from '@prisma/client';
 
-  createdAt: Date;
-  updatedAt: Date;
-  deletedAt: Date | null, 
+type UserRoleWithRole = PrismaUserRole & { role: PrismaRole };
 
-  emailVerified: boolean;
-  emailVerificationCode: string | null;
-  emailVerificationExpiresAt: Date | null;
-}
+export type PrismaUserWithRoles = Omit<PrismaUser, 'roles'> & {
+  roles: UserRoleWithRole[];
+};
+
+
+

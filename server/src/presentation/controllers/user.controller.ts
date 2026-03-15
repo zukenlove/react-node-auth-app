@@ -4,6 +4,7 @@ import { PrismaUserRepository } from "../../infrastructure/repositories/UserRepo
 
 // Assume userRepository is an instance of a class implementing IUserRepository
 // For example: new PrismaUserRepository()
+
 const userService = new UserService(new PrismaUserRepository());
 
 // Create a new user
@@ -18,59 +19,75 @@ export const createUser = async (req: any, res: any) => {
   }
 };
 
-// Get a user by ID
+// List all users
+export const listUsers = async (req: any, res: any) => {
+  try {
+    const users = await userService.list();
+    res.status(200).json(users);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+};
+
+// Get user by ID
 export const getUserById = async (req: any, res: any) => {
   try {
     const { id } = req.params;
-    const user = await userService.getUserById(id);
-    if (!user) return res.status(404).json({ message: "User not found" });
-    res.json(user);
+    const user = await userService.findById(id);
+    if (user) {
+      res.status(200).json(user);
+    } else {
+      res.status(404).json({ error: "User not found" });
+    }
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }
 };
 
-// Get a user by email
+// Get user by email
 export const getUserByEmail = async (req: any, res: any) => {
   try {
     const { email } = req.params;
-    const user = await userService.getUserByEmail(email);
-    if (!user) return res.status(404).json({ message: "User not found" });
-    res.json(user);
+    const user = await userService.findByEmail(email);
+    if (user) {
+      res.status(200).json(user);
+    } else {
+      res.status(404).json({ error: "User not found" });
+    }
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }
 };
 
-// List all users
-export const listUsers = async (_req: any, res: any) => {
-  try {
-    const users = await userService.listUsers();
-    res.json(users);
-  } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
-  }
-};
-
-// Update a user
+// Update user
 export const updateUser = async (req: any, res: any) => {
   try {
-    const { id, username, email, password } = req.body;
-    const user = User.register({ id, username, email, password }); // Use factory to maintain invariants
-    const updatedUser = await userService.updateUser(user);
-    res.json(updatedUser);
+    const { id } = req.params;
+    const { username, email, password } = req.body;
+    const user = await userService.findById(id);
+    if (user) {
+      user.setUsername(username);
+      user.setEmail(email);
+      if (password) {
+        user.setPassword(password); // This will hash the password
+      }
+      await userService.update(user);
+      res.status(200).json(user);
+    } else {
+      res.status(404).json({ error: "User not found" });
+    }
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }
 };
 
-// Soft delete a user
+// Delete user
 export const deleteUser = async (req: any, res: any) => {
   try {
     const { id } = req.params;
-    await userService.deleteUser(id);
+    await userService.delete(id);
     res.status(204).send();
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }
-};
+};      

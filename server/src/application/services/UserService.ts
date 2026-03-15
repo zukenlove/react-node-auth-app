@@ -4,35 +4,51 @@ import type { IUserRepository } from "../../domain/repositories/IUserRepository"
 export class UserService {
   constructor(private userRepository: IUserRepository) {}
 
-  // Create a new user
-  async create(user: User): Promise<User> {
-    // You could add validation or business rules here
-    return this.userRepository.create(user);
+async create(user: User): Promise<User> {
+  try {
+    const existing = await this.userRepository.findByEmail(user.getEmail());
+
+    if (existing) {
+      throw new Error("Email already in use");
+    }
+
+    const code = user.generateEmailVerificationCode();
+
+    const saved = await this.userRepository.create(user);
+
+    // await this.emailService.sendVerification(saved.getEmail(), code);
+
+    return saved;
+
+  } catch (error: any) {
+    throw error.message ? new Error((error as Error).message) : error as Error;
+  }
+}
+// list all users
+
+  async list(): Promise<User[]> {
+    return await this.userRepository.list();
   }
 
-  // Find user by ID
-  async getUserById(id: string): Promise<User | null> {
-    return this.userRepository.findById(id);
+
+
+  /*====================================================*/
+
+  async findById(id: string): Promise<User | null> {
+    return await this.userRepository.findById(id);
   }
 
-  // Find user by email
-  async getUserByEmail(email: string): Promise<User | null> {
-    return this.userRepository.findByEmail(email);
+  async findByEmail(email: string): Promise<User | null> {
+    return await this.userRepository.findByEmail(email);
   }
 
-  // List all users
-  async listUsers(): Promise<User[]> {
-    return this.userRepository.list();
+  async update(user: User): Promise<User> {
+    return await this.userRepository.update(user);
   }
 
-  // Update a user
-  async updateUser(user: User): Promise<User> {
-    // Add validation/business logic if needed
-    return this.userRepository.update(user);
+  async delete(id: string): Promise<void> {
+    await this.userRepository.delete(id);
   }
 
-  // Soft delete a user
-  async deleteUser(id: string): Promise<void> {
-    return this.userRepository.softDelete(id);
-  }
+  // Additional methods for user-related business logic can be added here
 }

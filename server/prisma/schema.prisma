@@ -24,7 +24,7 @@ model User {
 }
 
 model Role {
-  id        String   @id @default(uuid())
+  id        String   @id
   title     String   @unique
   createdAt DateTime @default(now())
   users     UserRole[]

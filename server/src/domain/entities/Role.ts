@@ -1,9 +1,6 @@
 export type RoleId = "admin" | "user" | "moderator";
 
 export class Role {
-  static rehydrate(arg0: { id: any; title: any; }) {
-    throw new Error("Method not implemented.");
-  }
   private constructor(
     private readonly id: RoleId,
     private readonly title: string
@@ -42,6 +39,12 @@ export class Role {
       throw new Error(`Invalid role ID: ${id}`);
     }
     return role;
+  }
+
+  // Rehydrate from plain object
+  public static rehydrate(obj: { id: RoleId; title?: string }): Role {
+    // Use the id to get the canonical instance
+    return this.fromId(obj.id);
   }
 
   // Equality check

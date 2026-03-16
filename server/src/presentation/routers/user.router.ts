@@ -23,9 +23,9 @@ router.get("/id/:id", getUserById);
 router.get("/email/:email", getUserByEmail);
 
 // Update a user
-router.put("/", updateUser);
+router.put("/id/:id", updateUser);
 
 // Soft delete a user
-router.delete("/:id", deleteUser);
+router.delete("/id/:id", deleteUser);
 
 export default router;

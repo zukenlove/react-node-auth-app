@@ -6,5 +6,3 @@ export type PrismaUserWithRoles = Omit<PrismaUser, 'roles'> & {
   roles: UserRoleWithRole[];
 };
 
-
-

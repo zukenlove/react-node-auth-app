@@ -1,4 +1,4 @@
-import type { User, RegisterUserDTO } from "../entities/User";
+import type { User } from "../entities/User";
 
 export interface IUserRepository {
   create(user: User): Promise<User>;

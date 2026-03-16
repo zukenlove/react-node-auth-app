@@ -60,22 +60,31 @@ export const getUserByEmail = async (req: any, res: any) => {
 };
 
 // Update user
+
 export const updateUser = async (req: any, res: any) => {
   try {
     const { id } = req.params;
     const { username, email, password } = req.body;
+
     const user = await userService.findById(id);
-    if (user) {
-      user.setUsername(username);
-      user.setEmail(email);
-      if (password) {
-        user.setPassword(password); // This will hash the password
-      }
-      await userService.update(user);
-      res.status(200).json(user);
-    } else {
-      res.status(404).json({ error: "User not found" });
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
     }
+
+    // Only update fields if they are provided
+    if (username !== undefined) {
+      user.setUsername(username);
+    }
+    if (email !== undefined) {
+      user.setEmail(email);
+    }
+    if (password) {
+      user.setPassword(password);
+    }
+
+    const updatedUser = await userService.update(user);
+    res.status(200).json(updatedUser);
+
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }

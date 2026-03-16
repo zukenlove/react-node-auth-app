@@ -5,8 +5,12 @@ import { Role, type RoleId } from "../../domain/entities/Role";
 import { PrismaUserWrapper } from "../prisma/wrapper";
 
 export class PrismaUserRepository implements IUserRepository {
+
   async verifyEmail(code: string): Promise<User | null> {
-    const record = await prisma.user.findFirst({ where: { emailVerificationCode: code } });
+    const record = await prisma.user.findFirst({
+       where: { emailVerificationCode: code },
+       include: { roles: { include: { role: true } } },
+      });
     if (!record) return null;
 
     const user = User.rehydrate({
@@ -14,76 +18,67 @@ export class PrismaUserRepository implements IUserRepository {
       username: record.username,
       email: record.email,
       passwordHash: record.password,
-      roles: [Role.USER], // Adjust if roles are stored separately
+      roles: record.roles.map((r) => Role.rehydrate({ id: r.role.id as RoleId, title: r.role.title })),
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
       deletedAt: record.deletedAt,
-      emailVerified: true, // Mark as verified
-      emailVerificationCode: null, // Clear the code
-      emailVerificationExpiresAt: null, // Clear the expiration
+      emailVerified: true, 
+      emailVerificationCode: null, 
+      emailVerificationExpiresAt: null, 
     });
 
-    // Update the user to save the verified status
     await this.update(user);
-
     return user;
   }
 
-
-
-
   async list(): Promise<User[]> {
-    const records = await prisma.user.findMany({
-        include: {
-        roles: {
-          include: {
-            role: true, // include the actual Role object
-          },
-        },
-      },
-    });
-    
+    const records = await PrismaUserWrapper.list();
+
     return records.map(record =>
-       User.rehydrate({
+      User.rehydrate({
         id: record.id,
         username: record.username,
         email: record.email,
         passwordHash: record.password,
-        roles: record.roles.map((r) => Role.rehydrate({ id: r.role.id as RoleId, title: r.role.title })),
+        roles: record.roles?.map(r =>
+          Role.rehydrate({ id: r.role.id as RoleId, title: r.role.title })
+        ) ?? [],
         createdAt: record.createdAt,
         updatedAt: record.updatedAt,
         deletedAt: record.deletedAt,
         emailVerified: record.emailVerified,
         emailVerificationCode: record.emailVerificationCode,
         emailVerificationExpiresAt: record.emailVerificationExpiresAt,
-      }));
+      })
+    );
   }
 
-  async findById(id: string): Promise<User | null> {
-    const record = await prisma.user.findUnique({ 
-      where: { id }, 
-      include: { roles: { include: { role: true } } } 
-    });
-    if (!record) return null;
+async findById(id: string): Promise<User | null> {
+  const record = await PrismaUserWrapper.findById(id);
+  if (!record) return null;
 
-    return User.rehydrate({
-      id: record.id,
-      username: record.username,
-      email: record.email,
-      passwordHash: record.password,
-      createdAt: record.createdAt,
-      updatedAt: record.updatedAt,
-      deletedAt: record.deletedAt,
-      emailVerified: record.emailVerified,
-      emailVerificationCode: record.emailVerificationCode,
-      emailVerificationExpiresAt: record.emailVerificationExpiresAt,
-      roles: record.roles.map(r => Role.rehydrate({ id: r.role.id as RoleId, title: r.role.title })) // Map to Role entities
-  
-    });
-  }
+  return User.rehydrate({
+    id: record.id,
+    username: record.username,
+    email: record.email,
+    passwordHash: record.password,
+    roles: record.roles?.map(r =>
+      Role.rehydrate({
+        id: r.role.id as RoleId,
+        title: r.role.title,
+      })
+    ) ?? [],
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    deletedAt: record.deletedAt,
+    emailVerified: record.emailVerified,
+    emailVerificationCode: record.emailVerificationCode,
+    emailVerificationExpiresAt: record.emailVerificationExpiresAt,
+  });
+}
 
   async findByEmail(email: string): Promise<User | null> {
-    const record = await prisma.user.findUnique({ where: { email } });
+    const record = await PrismaUserWrapper.findByEmail(email);
     if (!record) return null;
 
     return User.rehydrate({
@@ -91,7 +86,12 @@ export class PrismaUserRepository implements IUserRepository {
       username: record.username,
       email: record.email,
       passwordHash: record.password,
-      roles: [Role.USER], // Adjust if roles are stored separately
+         roles: record.roles?.map(r =>
+      Role.rehydrate({
+        id: r.role.id as RoleId,
+        title: r.role.title,
+      })
+    ) ?? [],
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
       deletedAt: record.deletedAt,
@@ -109,20 +109,18 @@ export class PrismaUserRepository implements IUserRepository {
       username: saved.username,
       email: saved.email,
       passwordHash: saved.password,
-      roles: [Role.USER], // Adjust if roles are stored separately
+      roles: saved.roles?.map(r =>
+      Role.rehydrate({
+        id: r.role.id as RoleId,
+        title: r.role.title,
+      })
+    ) ?? [],
       createdAt: saved.createdAt,
       updatedAt: saved.updatedAt,
       deletedAt: saved.deletedAt,
       emailVerified: saved.emailVerified,
       emailVerificationCode: saved.emailVerificationCode,
       emailVerificationExpiresAt: saved.emailVerificationExpiresAt,
-    });
-  }
-
-  async delete(id: string): Promise<void> {
-    await prisma.user.update({
-      where: { id },
-      data: { deletedAt: new Date(), updatedAt: new Date() },
     });
   }
 
@@ -143,5 +141,12 @@ export class PrismaUserRepository implements IUserRepository {
       emailVerificationCode: saved.emailVerificationCode,
       emailVerificationExpiresAt: saved.emailVerificationExpiresAt,
     });
+  }
+
+  async delete(id: string): Promise<void> {
+    const existing = await PrismaUserWrapper.findById(id);
+    if (!existing) throw new Error("User not found");
+
+    await PrismaUserWrapper.delete(id);
   }
 }

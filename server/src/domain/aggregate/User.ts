@@ -12,7 +12,8 @@ import { UserEmailChangedEvent } from "../events/UserEmailChangedEvent.js";
 import { UserPasswordChangedEvent } from "../events/UserPasswordChangedEvent.js";
 import { UserRoleAssignedEvent } from "../events/UserRoleAssignedEvent.js";
 import { UserRoleRevokedEvent } from "../events/UserRoleRevokedEvent.js";
-
+import { UserEmailVerifiedEvent } from "../events/UserEmailVerifiedEvent.js";
+import { UserEmailVerificationRequestedEvent } from "../events/UserEmailVerificationRequestedEvent.js";
 import { EmailVerification } from "../value-objects/EmailVerification.js";
 
 /* ----------------------------- DATE PROVIDER ----------------------------- */
@@ -31,7 +32,6 @@ class SystemDateProvider implements DateProvider {
 
 export class User {
   private domainEvents: DomainEvent[] = [];
-  private version = 0;
 
   private constructor(
     private readonly id: UserId,
@@ -43,17 +43,20 @@ export class User {
     private updatedAt: Date,
     private deletedAt: Date | null,
     private readonly dateProvider: DateProvider,
-    private emailVerification: EmailVerification
+    private emailVerification: EmailVerification,
+    private version: number = 1
+
   ) {}
 
   /* ----------------------------- FACTORY ----------------------------- */
 
-  public static async register(params: {
+  static async register(params: {
     username: string;
     email: string;
     password: string;
     dateProvider?: DateProvider;
   }): Promise<User> {
+
     const dp = params.dateProvider ?? new SystemDateProvider();
     const now = dp.now();
 
@@ -85,7 +88,7 @@ export class User {
 
   /* ----------------------------- ADMIN FACTORY ----------------------------- */
 
-  public static async createByAdmin(params: {
+  static async createByAdmin(params: {
     username: string;
     email: string;
     password: string;
@@ -94,6 +97,7 @@ export class User {
     actorRoles: Role[];
     dateProvider?: DateProvider;
   }): Promise<User> {
+
     const dp = params.dateProvider ?? new SystemDateProvider();
     const now = dp.now();
 
@@ -129,15 +133,24 @@ export class User {
 
   /* ----------------------------- EMAIL VERIFICATION ----------------------------- */
 
-  generateEmailVerificationCode(): string {
+  sendEmailVerificationCode(): string {
     this.assertActive();
+
+    if (this.emailVerification.isVerified()) {
+      throw new Error("Email already verified.");
+    }
 
     const now = this.dateProvider.now();
 
-    const { verification, code } =
-      this.emailVerification.generate(now);
-
+    const { verification, code } = this.emailVerification.generate(now);
     this.emailVerification = verification;
+
+    this.record(
+      new UserEmailVerificationRequestedEvent(this.getId(), {
+        requestedAt: now
+      }),
+      now
+    );
 
     return code;
   }
@@ -146,13 +159,18 @@ export class User {
     this.assertActive();
 
     const now = this.dateProvider.now();
+    const wasVerified = this.emailVerification.isVerified();
 
-    this.emailVerification =
-      this.emailVerification.verify(code, now);
-  }
+    this.emailVerification = this.emailVerification.verify(code, now);
 
-  isEmailVerified(): boolean {
-    return this.emailVerification.isVerified();
+    if (!wasVerified && this.emailVerification.isVerified()) {
+      this.record(
+        new UserEmailVerifiedEvent(this.getId(), {
+          verifiedAt: now
+        }),
+        now
+      );
+    }
   }
 
   /* ----------------------------- EMAIL ----------------------------- */
@@ -161,11 +179,10 @@ export class User {
     this.assertActive();
 
     const email = Email.create(newEmail);
+
     if (email.equals(this.email)) return;
 
     this.email = email;
-
-    // reset verification when email changes
     this.emailVerification = EmailVerification.unverified();
 
     const now = this.dateProvider.now();
@@ -181,16 +198,22 @@ export class User {
 
   /* ----------------------------- PASSWORD ----------------------------- */
 
-  async changePassword(
-    currentPassword: string,
-    newPassword: string
-  ): Promise<void> {
+  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+
     this.assertActive();
+    const newPasswordVO = await Password.create(newPassword);
 
     const valid = await this.password.compare(currentPassword);
-    if (!valid) throw new Error("Invalid current password.");
+    if (!valid) {
+      throw new Error("Invalid current password.");
+    }
 
-    this.password = await Password.create(newPassword);
+    const samePassword = await this.password.compare(newPassword);
+    if (samePassword) {
+      throw new Error("New password cannot be the same as the current password.");
+    }
+
+    this.password = newPasswordVO;
 
     const now = this.dateProvider.now();
 
@@ -202,9 +225,25 @@ export class User {
     );
   }
 
+  /* ----------------------------- CREATE PASSWORD ----------------------------- */
+
+  async createPassword(newPassword: string): Promise<void> {
+    this.assertActive();  
+    const newPasswordVO = await Password.create(newPassword);
+    this.password = newPasswordVO;
+    
+    const now = this.dateProvider.now();
+    this.record(
+      new UserPasswordChangedEvent(this.getId(), {
+        changedAt: now
+      }),
+      now
+    );
+  }
   /* ----------------------------- ROLE MANAGEMENT ----------------------------- */
 
   assignRole(role: Role, actorId: string, actorRoles: Role[]): void {
+
     this.assertActive();
     this.assertAdmin(actorRoles);
 
@@ -212,39 +251,55 @@ export class User {
 
     this.roles.add(role);
 
+    const now = this.dateProvider.now();
+
     this.record(
       new UserRoleAssignedEvent(this.getId(), {
         roleId: role.getId(),
         assignedBy: actorId
-      })
+      }),
+      now
     );
   }
 
+  /* ----------------------------- REVOKE ROLE ----------------------------- */
+
   revokeRole(role: Role, actorId: string, actorRoles: Role[]): void {
+
     this.assertActive();
     this.assertAdmin(actorRoles);
 
     if (!this.roles.has(role)) return;
 
-    if (this.roles.size === 1)
+    if (this.roles.size === 1) {
       throw new Error("User must have at least one role.");
+    }
 
     this.roles.delete(role);
+
+    const now = this.dateProvider.now();
 
     this.record(
       new UserRoleRevokedEvent(this.getId(), {
         roleId: role.getId(),
         revokedBy: actorId
-      })
+      }),
+      now
     );
   }
 
   /* ----------------------------- SOFT DELETE ----------------------------- */
 
   softDelete(actorId: string): void {
+
     if (this.deletedAt) return;
 
+    if (this.roles.has(Role.ADMIN)) {
+      throw new Error("Admin users cannot be deleted.");
+    }
+
     const now = this.dateProvider.now();
+
     this.deletedAt = now;
 
     this.record(
@@ -256,7 +311,10 @@ export class User {
     );
   }
 
+/* ----------------------------- RESTORE ----------------------------- */
+
   restore(actorId: string): void {
+
     if (!this.deletedAt) return;
 
     this.deletedAt = null;
@@ -274,24 +332,25 @@ export class User {
 
   /* ----------------------------- REHYDRATION ----------------------------- */
 
-  public static rehydrate(props: {
-    id: string;
-    username: string;
-    email: string;
-    passwordHash: string;
-    roles: Role[];
+  static rehydrate(props: {
+    id: string
+    username: string
+    email: string
+    passwordHash: string
+    roles: Role[]
 
-    createdAt: Date;
-    updatedAt: Date;
-    deletedAt: Date | null;
+    createdAt: Date
+    updatedAt: Date
+    deletedAt: Date | null
 
-    emailVerified: boolean;
-    emailVerificationCode: string | null;
-    emailVerificationExpiresAt: Date | null;
+    emailVerified: boolean
+    emailVerificationCode: string | null
+    emailVerificationExpiresAt: Date | null
 
-    version?: number;
-    dateProvider?: DateProvider;
+    version?: number
+    dateProvider?: DateProvider
   }): User {
+
     const dp = props.dateProvider ?? new SystemDateProvider();
 
     const user = new User(
@@ -304,7 +363,6 @@ export class User {
       props.createdAt,
       props.updatedAt,
       props.deletedAt,
-
       dp,
 
       EmailVerification.rehydrate({
@@ -319,9 +377,10 @@ export class User {
     return user;
   }
 
-  /* ----------------------------- EVENTS ----------------------------- */
+  /* ----------------------------- EVENT SYSTEM ----------------------------- */
 
   private record(event: DomainEvent, eventTime?: Date): void {
+
     const now = eventTime ?? this.dateProvider.now();
 
     this.updatedAt = now;
@@ -329,10 +388,14 @@ export class User {
 
     this.domainEvents.push(event);
   }
+  
+  
+/* Pulls and clears domain events. Should be called by the repository after saving. */
+  pullDomainEvents(): DomainEvent[] {
 
-  public pullDomainEvents(): DomainEvent[] {
     const events = [...this.domainEvents];
     this.domainEvents = [];
+
     return events;
   }
 
@@ -374,23 +437,81 @@ export class User {
     return this.version;
   }
 
+  isEmailVerified(): boolean {
+    return this.emailVerification.isVerified();
+  }
+
+  getEmailVerificationCode(): string | null {
+    return this.emailVerification.getCode();
+  }
+
+  getEmailVerificationExpiresAt(): Date | null {
+    return this.emailVerification.getExpiresAt();
+  }
+
   /* ----------------------------- INVARIANTS ----------------------------- */
 
   private assertActive(): void {
-    if (this.deletedAt) throw new Error("User is deleted.");
+    if (this.deletedAt) {
+      throw new Error("User is deleted.");
+    }
   }
 
   private assertAdmin(actorRoles: readonly Role[]): void {
-    const isAdmin = actorRoles.some((r) => r.equals(Role.ADMIN));
-    if (!isAdmin) throw new Error("Admin privileges required.");
+
+    const isAdmin = actorRoles.some(r => r.equals(Role.ADMIN));
+
+    if (!isAdmin) {
+      throw new Error("Admin privileges required.");
+    }
   }
 
   private assertHasAtLeastOneRole(): void {
-    if (this.roles.size === 0)
+
+    if (this.roles.size === 0) {
       throw new Error("User must have at least one role.");
+    }
   }
 
-  public equals(other: User): boolean {
+  equals(other: User): boolean {
     return this.id.equals(other.id);
   }
+
+  /* ----------------------------- TO JSON ----------------------------- */
+  public async validatePassword(password: string): Promise<boolean> {
+
+    return  await this.password.compare(password);
+   
+    const now = this.dateProvider.now();
+    // this.record(
+    //   new UserLoggedInEvent(this.getId(), {
+    //     loggedInAt: now
+    //   }),
+    //   now
+    // );
+  }
+
+  changeUsername(newUsername: string): void {
+
+  this.assertActive()
+
+  const username = Username.create(newUsername)
+
+  if (username.equals(this.username)) {
+    return
+  }
+
+  this.username = username
+
+  const now = this.dateProvider.now()
+
+  // Optional event
+  // this.record(
+  //   new UserUsernameChangedEvent(this.getId(), {
+  //     username: username.toString(),
+  //     changedAt: now
+  //   }),
+  //   now
+  // )
+}
 }

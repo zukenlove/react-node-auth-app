@@ -36,6 +36,10 @@ export class Password {
         return this.value;
     }
 
+    public equals(other: Password): boolean {
+        return this.value === other.value;
+    }
+
     // Return the hashed password explicitly
     public getHash(): string {
         return this.value;

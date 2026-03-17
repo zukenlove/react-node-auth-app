@@ -1,4 +1,5 @@
 export class EmailVerification {
+
   private constructor(
     private readonly verified: boolean,
     private readonly code: string | null,
@@ -12,9 +13,9 @@ export class EmailVerification {
   }
 
   static rehydrate(props: {
-    verified: boolean;
-    code: string | null;
-    expiresAt: Date | null;
+    verified: boolean
+    code: string | null
+    expiresAt: Date | null
   }): EmailVerification {
     return new EmailVerification(
       props.verified,
@@ -25,10 +26,20 @@ export class EmailVerification {
 
   /* ----------------------------- GENERATE CODE ----------------------------- */
 
-  generate(now: Date, ttlMinutes = 10): { verification: EmailVerification; code: string } {
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
+  generate(
+    now: Date,
+    ttlMinutes = 60
+  ): { verification: EmailVerification; code: string } {
 
-    const expiresAt = new Date(now.getTime() + ttlMinutes * 60 * 1000);
+    if (this.verified) {
+      throw new Error("Email already verified.");
+    }
+
+    const code = EmailVerification.generateCode();
+
+    const expiresAt = new Date(
+      now.getTime() + ttlMinutes * 60 * 1000
+    );
 
     const verification = new EmailVerification(
       false,
@@ -42,11 +53,16 @@ export class EmailVerification {
   /* ----------------------------- VERIFY ----------------------------- */
 
   verify(code: string, now: Date): EmailVerification {
+
+    if (this.verified) {
+      return this;
+    }
+
     if (!this.code) {
       throw new Error("Verification code not generated.");
     }
 
-    if (!this.expiresAt || this.expiresAt < now) {
+    if (!this.expiresAt || now > this.expiresAt) {
       throw new Error("Verification code expired.");
     }
 
@@ -55,6 +71,12 @@ export class EmailVerification {
     }
 
     return new EmailVerification(true, null, null);
+  }
+
+  /* ----------------------------- HELPERS ----------------------------- */
+
+  private static generateCode(): string {
+    return Math.floor(100000 + Math.random() * 900000).toString();
   }
 
   /* ----------------------------- GETTERS ----------------------------- */

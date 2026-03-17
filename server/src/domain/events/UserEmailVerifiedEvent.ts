@@ -1,4 +1,4 @@
-import { BaseDomainEvent } from "./BasedomainEvent";
+import { BaseDomainEvent } from "../events/BaseDomainEvent";
 
 export interface UserEmailVerifiedPayload {
   verifiedAt: Date;

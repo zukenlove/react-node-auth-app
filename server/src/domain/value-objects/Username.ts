@@ -11,4 +11,7 @@ export class Username {
   toString() {
     return this.value;
   }
+  equals(other: Username): boolean {
+    return this.value === other.value;
+  }
 }

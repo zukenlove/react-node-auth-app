@@ -4,6 +4,7 @@ import { Username } from "../value-objects/Username.js";
 import { UserId } from "../value-objects/UserId.js";
 import { Role } from "../entities/Role.js";
 import type { DomainEvent } from "../events/DomainEvent.js";
+
 import { UserCreatedEvent } from "../events/UserCreatedEvent.js";
 import { UserDeletedEvent } from "../events/UserDeletedEvent.js";
 import { UserRestoredEvent } from "../events/UserRestoredEvent.js";
@@ -11,8 +12,8 @@ import { UserEmailChangedEvent } from "../events/UserEmailChangedEvent.js";
 import { UserPasswordChangedEvent } from "../events/UserPasswordChangedEvent.js";
 import { UserRoleAssignedEvent } from "../events/UserRoleAssignedEvent.js";
 import { UserRoleRevokedEvent } from "../events/UserRoleRevokedEvent.js";
+
 import { EmailVerification } from "../value-objects/EmailVerification.js";
-import { UserEmailVerifiedEvent } from "../events/UserEmailVerifiedEvent.js";
 
 /* ----------------------------- DATE PROVIDER ----------------------------- */
 
@@ -29,12 +30,6 @@ class SystemDateProvider implements DateProvider {
 /* ----------------------------- USER AGGREGATE ----------------------------- */
 
 export class User {
-  getEmailVerificationExpiresAt(): Date | null {
-      return this.emailVerification.getExpiresAt(); // read-only
-  }
-  isEmailVerified() : boolean {
-    return this.emailVerification.isVerified();
-  }
   private domainEvents: DomainEvent[] = [];
   private version = 0;
 
@@ -84,6 +79,7 @@ export class User {
       }),
       now
     );
+
     return user;
   }
 
@@ -151,43 +147,25 @@ export class User {
 
     const now = this.dateProvider.now();
 
-    const previousState = this.emailVerification.isVerified();
-
-    this.emailVerification = this.emailVerification.verify(code, now);
-
-    if (!previousState && this.emailVerification.isVerified()) {
-      this.record(
-        new UserEmailVerifiedEvent(this.getId(), {
-          verifiedAt: now
-        }),
-        now
-      );
-    }
+    this.emailVerification =
+      this.emailVerification.verify(code, now);
   }
-  /*-------------------------------------------------------------------*/
 
-  public sendEmailVerificationCode(): void {
-    this.assertActive();
-
-    if (this.emailVerification.isVerified()) {
-      throw new Error("Email is already verified.");
-    }
-
-  } 
+  isEmailVerified(): boolean {
+    return this.emailVerification.isVerified();
+  }
 
   /* ----------------------------- EMAIL ----------------------------- */
+
   changeEmail(newEmail: string): void {
     this.assertActive();
 
     const email = Email.create(newEmail);
-
-    // no change if it's the same email
     if (email.equals(this.email)) return;
 
-    // update the email
     this.email = email;
 
-    // reset verification for the new email
+    // reset verification when email changes
     this.emailVerification = EmailVerification.unverified();
 
     const now = this.dateProvider.now();
@@ -200,9 +178,10 @@ export class User {
       now
     );
   }
+
   /* ----------------------------- PASSWORD ----------------------------- */
 
-  public async changePassword(
+  async changePassword(
     currentPassword: string,
     newPassword: string
   ): Promise<void> {
@@ -232,13 +211,12 @@ export class User {
     if (this.roles.has(role)) return;
 
     this.roles.add(role);
-    const now = this.dateProvider.now();
 
     this.record(
       new UserRoleAssignedEvent(this.getId(), {
         roleId: role.getId(),
         assignedBy: actorId
-      }), now
+      })
     );
   }
 
@@ -252,7 +230,6 @@ export class User {
       throw new Error("User must have at least one role.");
 
     this.roles.delete(role);
-    const now = this.dateProvider.now();
 
     this.record(
       new UserRoleRevokedEvent(this.getId(), {
@@ -263,15 +240,11 @@ export class User {
   }
 
   /* ----------------------------- SOFT DELETE ----------------------------- */
+
   softDelete(actorId: string): void {
     if (this.deletedAt) return;
 
-    if (this.roles.has(Role.ADMIN)) {
-      throw new Error("Admin users cannot be deleted.");
-    }
-
     const now = this.dateProvider.now();
-
     this.deletedAt = now;
 
     this.record(
@@ -282,6 +255,7 @@ export class User {
       now
     );
   }
+
   restore(actorId: string): void {
     if (!this.deletedAt) return;
 
@@ -300,7 +274,6 @@ export class User {
 
   /* ----------------------------- REHYDRATION ----------------------------- */
 
-  
   public static rehydrate(props: {
     id: string;
     username: string;
@@ -331,6 +304,7 @@ export class User {
       props.createdAt,
       props.updatedAt,
       props.deletedAt,
+
       dp,
 
       EmailVerification.rehydrate({
@@ -399,25 +373,6 @@ export class User {
   getVersion(): number {
     return this.version;
   }
-  getEmailVerificationCode(): string | null {
-      return this.emailVerification.getCode(); // read-only
-    }
-
-  // setters for updatable fields (used in application services)
-  
-  setUsername(username: string): void {
-    this.assertActive();
-    this.username = Username.create(username);
-  }   
-  async setPassword(password: string): Promise<void> {
-    this.assertActive();
-    this.password = await Password.create(password);
-  }   
-
-  setEmail(email: string): void {
-    this.assertActive();
-    this.email = Email.create(email);
-  }   
 
   /* ----------------------------- INVARIANTS ----------------------------- */
 
@@ -438,5 +393,17 @@ export class User {
   public equals(other: User): boolean {
     return this.id.equals(other.id);
   }
-  
 }
+
+
+// class SendVerificationEmailHandler {
+//   async handle(event: UserCreatedEvent) {
+//     const link = `${process.env.API_URL}/verify-email/${event.payload.userId}?code=${event.payload.verificationCode}`;
+
+//     await emailService.send({
+//       to: event.payload.email,
+//       subject: "Verify your email",
+//       html: `<a href="${link}">Verify Email</a>`
+//     });
+//   }
+// }
